@@ -1,0 +1,5 @@
+{
+  "apiBase": "https://mempool.space/api",
+  "explorerLabel": "mempool.space",
+  "refreshSeconds": 60
+}
