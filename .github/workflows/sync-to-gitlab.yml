@@ -1,0 +1,71 @@
+
+name: Sync Bitcoin Core to GitLab
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitlab-master-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Synchronize GitLab mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout GitHub repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push to GitLab safely
+        shell: bash
+        env:
+          GITLAB_SYNC_TOKEN: ${{ secrets.GITLAB_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$GITLAB_SYNC_TOKEN" ]; then
+            echo "Missing GitLab synchronization token."
+            exit 1
+          fi
+
+          ASKPASS="$RUNNER_TEMP/gitlab-askpass.sh"
+
+          cat > "$ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "oauth2" ;;
+            *Password*) printf '%s\n' "$GITLAB_SYNC_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+
+          chmod 700 "$ASKPASS"
+          export GIT_ASKPASS="$ASKPASS"
+          export GIT_TERMINAL_PROMPT=0
+
+          git remote add gitlab \
+            https://gitlab.com/Kushmanmb/bitcoin-core-mirror.git
+
+          git fetch --no-tags gitlab \
+            refs/heads/master:refs/remotes/gitlab/master
+
+          if ! git merge-base --is-ancestor \
+            refs/remotes/gitlab/master HEAD; then
+            echo "Repositories diverged. Sync stopped safely."
+            exit 1
+          fi
+
+          git push gitlab HEAD:refs/heads/master
+
+          echo "GitLab synchronization successful."
